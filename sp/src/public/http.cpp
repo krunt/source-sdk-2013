@@ -3,6 +3,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <string>
 
 
 HttpRequestParams_t::HttpRequestParams_t() 
@@ -71,7 +72,7 @@ JobStatus_t CHttpRequestJob::DoExecute() {
     if ( !curl ) {
         m_failure = 1;
         m_failureReason = "curl == NULL";
-        goto failure;
+        goto out;
     }
 
     if ( verbose ) {
@@ -132,6 +133,10 @@ JobStatus_t CHttpRequestJob::DoExecute() {
 
     if ( m_failure != CURLE_OK ) {
         m_failureReason = "curl-specific";
+    } else if ( m_params.m_outputOpMethod == HTTP_ME_BUFFER ) {
+        /* optimize here */
+        std::string str = outputBufStream.str();
+        m_params.m_outputBuffer.Put( str.data(), str.size() );
     }
 
 out:

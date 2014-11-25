@@ -14,6 +14,8 @@ struct TextToSpeechParams_t {
     CUtlString m_appKey;
     CUtlString m_appSecret;
 
+    CUtlString m_absPath;
+
     CRefPtr<CFunctor> m_onDone;
 };
 

@@ -377,6 +377,7 @@ public:
 	void InputCancelAtNextInterrupt( inputdata_t &inputdata );
 	void InputPitchShiftPlayback( inputdata_t &inputdata );
 	void InputTriggerEvent( inputdata_t &inputdata );
+    void InputReload( inputdata_t &inputdata );
 
 	// If the scene is playing, finds an actor in the scene who can respond to the specified concept token
 	void InputInterjectResponse( inputdata_t &inputdata );
@@ -712,6 +713,7 @@ BEGIN_DATADESC( CSceneEntity )
 
 	DEFINE_KEYFIELD( m_iPlayerDeathBehavior, FIELD_INTEGER, "onplayerdeath" ),
 	DEFINE_INPUTFUNC( FIELD_VOID, "ScriptPlayerDeath", InputScriptPlayerDeath ),
+	DEFINE_INPUTFUNC( FIELD_VOID, "Reload", InputReload ),
 
 	// Outputs
 	DEFINE_OUTPUT( m_OnStart, "OnStart"),
@@ -2059,6 +2061,12 @@ void CSceneEntity::InputStartPlayback( inputdata_t &inputdata )
 	ClearActivatorTargets();
 	m_hActivator = inputdata.pActivator;
 	StartPlayback();
+}
+
+void CSceneEntity::InputReload( inputdata_t &inputdata )
+{
+	CancelPlayback();
+    UnloadScene();
 }
 
 void CSceneEntity::InputPausePlayback( inputdata_t &inputdata )
@@ -5653,4 +5661,139 @@ CON_COMMAND( scene_flush, "Flush all .vcds from the cache and reload from disk."
 	Msg( "Reloading\n" );
 	scenefilecache->Reload();
 	Msg( "   done\n" );
+}
+
+class InMemoryFileReadBinary : public IFileReadBinary {
+public:
+    InMemoryFileReadyBinary( const char *m_ptr, int size )
+        : m_begin( m_ptr ), m_size( size ), m_curPos( 0 )
+    {}
+
+    virtual int open( const char *pFileName ) { return 0; }
+    virtual int read( void *pOutput, int size, int file ) {
+        assert( !file );
+        int toRead = min( size, m_size - m_curPos );
+        memcpy( pOutput, m_begin + m_curPos, toRead );
+        return toRead;
+    }
+    virtual void close( int file ) { assert( !file ); }
+    virtual void seek( int file, int pos ) { assert( !file ); m_curPos = pos; }
+    virtual void size( int file ) { assert( !file ); return m_size; }
+
+private:
+    char *m_begin;
+    int   m_size;
+    int   m_curPos;
+};
+
+static bool GetSentenceFromWavBuffer( const CUtlBuffer &buffer, 
+        CSentence &sentence ) 
+{
+    /* open wav to determine length of sentence */
+    InMemoryFileReadBinary inMem( res->m_wavBuffer->Base(), 
+            res->m_wavBuffer->TellPut() );
+    InFileRIFF riff( "stub", inMem );
+    IterateRIFF riffIterator( riff, rif.RIFFSize() );
+
+    bool found = false;
+    while ( walk.ChunkAvailable() ) {
+        if ( walk.ChunkName() == WAVE_VALVEDATA ) {
+            found = true;
+
+            CUtlBuffer buf( 0, 0, CUtlBuffer::TEXT_BUFFER );
+            buf.EnsureCapacity( walk.ChunkSize() );
+            walk.ChunkRead( buf.Base() );
+            buf.SeekPut( CUtlBuffer::SEEK_HEAD, walk.ChunkSize() );
+
+            sentence.InitFromDataChunk( buf.Base(), buf.TellPut() );
+        }
+        walk.ChunkNext();
+    }
+
+    if ( !found ) {
+        Warning( "SceneStartCallback(): valvedata chunk not found in wav-file" );
+    }
+
+    return found;
+}
+
+const int maxProcessedSoundCount = 1024;
+static int processedSoundCount = 10;
+
+static void WriteSceneTemplateToDisk( float startTime, float endTime,
+    const CUtlBuffer &wavBuffer )
+{
+    int fileId = processedSoundCount++;
+    CUtlBuffer vcdBuffer;
+    CUtlString musicId, musicPath;
+
+    musicId.Format( "gman_%03d", fileId );
+    musicPath = "sound/npc/Gman/" + musicId + ".wav";
+
+    /* TODO */
+    vcdBuffer.Put( "" );
+
+    if ( 
+        !filesystem->WriteFile( "scenes/npc/gman_misc/gman_mine.vcd", 
+            NULL, vcdBuffer )
+        || !filesystem->WriteFile( musicPath.Get(), NULL, wavBuffer )) 
+    {
+        Warning( "wrint vcd-scene or sound-file failed\n" );
+    }
+}
+
+static void SceneStartCallback( void *data ) {
+    TextToSpeechResults_t *res = (TextToSpeechResults_t *)data;
+
+    if ( res->m_failure ) {
+        Warning( "SceneStartCallback(): fetch failured: %s\n",
+            res->m_failureReason.Get() );
+        return;
+    }
+
+    if ( !res->m_wavBuffer->TellPut() ) {
+        Warning( "SceneStartCallback(): wavBuffer is empty\n" );
+        return;
+    }
+
+    CSentence sentence;
+    if ( !GetSentenceFromWavBuffer( *res->m_wavBuffer, sentence ) ) {
+        return;
+    }
+
+    float startTime, endTime;
+    sentence.GetEstimatedTimes( startTime, endTime );
+
+    WriteSceneTemplateToDisk( startTime, endTime, res->m_wavBuffer );
+
+    SendReload();
+    SendStart();
+}
+
+CON_COMMAND( scene_start, "start scene in entity" )
+{
+    if ( args.ArgC() != 2 ) {
+        Warning( "Usage: scene_start <text>\n" );
+        return;
+    }
+
+    if ( processedSoundCount >= maxProcessedSoundCount ) {
+        Warning( "exceeded max-tts-sound-count\n" );
+        return;
+    }
+
+    TextToSpeechParams_t params;
+    params.m_text = args.Arg( 2 );
+
+    params.m_ttsUrl = "https://api.att.com/speech/v3/textToSpeech";
+    params.m_convUrl = "http:://192.168.0.101:19999/";
+
+    params.m_appKey = "5p8eyqkvfynsw9mlngcvrs6t1d1saxmp";
+    params.m_appSecret = "0q4z4cgxonq50imw0ohinehpduj8updb";
+
+    params.m_absPath = "";
+
+    params.m_onDone = CreateFunctor( &SceneStartCallback );
+
+    g_pThreadPool->AddJob( new CTextToSpeechJob( params ) );
 }

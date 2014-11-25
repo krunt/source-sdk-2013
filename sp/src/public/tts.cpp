@@ -112,7 +112,13 @@ JobStatus_t CTextToSpeechJob::DoExecute( void ) {
         params.m_inputOpMethod = HTTP_ME_BUFFER;
         params.m_inputBuffer.Swap( m_wavBuffer );
 
-        params.m_outputOpMethod = HTTP_ME_BUFFER;
+        if ( m_params.m_absPath.IsEmpty() ) {
+            params.m_outputOpMethod = HTTP_ME_BUFFER;
+        } else {
+            params.m_outputOpMethod = HTTP_ME_FILE;
+            params.m_outputFile = m_params.m_absPath;
+        }
+
         params.m_onDone = CreateFunctor( this, 
             CTextToSpeechJob::OnWavConvReceived );
 
