@@ -43,6 +43,7 @@ struct HttpRequestResults_t {
     CUtlString *m_failureReason;
 };
 
+
 class CHttpRequestJob : public CFunctorJob, public COnDoneCallback {
 public:
     CHttpRequestJob( HttpRequestParams_t &params );

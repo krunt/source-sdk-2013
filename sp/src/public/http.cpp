@@ -141,5 +141,7 @@ out:
     results.m_failureReason = &m_failureReason;
 
     CallOnDone( &m_params );
+
+    return JOB_OK;
 }
 
