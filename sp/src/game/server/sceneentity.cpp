@@ -33,6 +33,14 @@
 #include "SceneCache.h"
 #include "scripted.h"
 #include "env_debughistory.h"
+#include "http.h"
+#include "tts.h"
+#include "tier2/riff.h"
+#include "sentence.h"
+#include "eventqueue.h"
+
+#include <algorithm>
+#include <boost/bind.hpp>
 
 #ifdef HL2_EPISODIC
 #include "npc_alyx_episodic.h"
@@ -3360,7 +3368,18 @@ CChoreoScene *CSceneEntity::LoadScene( const char *filename, IChoreoEventCallbac
 	Q_SetExtension( loadfile, ".vcd", sizeof( loadfile ) );
 	Q_FixSlashes( loadfile );
 
+    void *pBuffer = 0;
+    CChoreoScene *pScene;
+         
+    int fileSize = filesystem->ReadFileEx( loadfile, "GAME", &pBuffer, true );
+    if (fileSize)
+    {
+        g_TokenProcessor.SetBuffer((char*)pBuffer);
+        pScene = ChoreoLoadScene( loadfile, NULL, &g_TokenProcessor, LocalScene_Printf );
+    }
+
 	// binary compiled vcd
+    /*
 	void *pBuffer;
 	int fileSize;
 	if ( !CopySceneFileIntoMemory( loadfile, &pBuffer, &fileSize ) )
@@ -3382,6 +3401,46 @@ CChoreoScene *CSceneEntity::LoadScene( const char *filename, IChoreoEventCallbac
 		pScene->SetPrintFunc( LocalScene_Printf );
 		pScene->SetEventCallbackInterface( pCallback );
 	}
+    */
+
+	pScene->SetPrintFunc( LocalScene_Printf );
+	pScene->SetEventCallbackInterface( pCallback );
+
+    {
+    CChoreoScene *scene = pScene;
+	// Iterate events and precache necessary resources
+	for ( int i = 0; i < scene->GetNumEvents(); i++ )
+	{
+		CChoreoEvent *event = scene->GetEvent( i );
+		if ( !event )
+			continue;
+
+		// load any necessary data
+		switch (event->GetType() )
+		{
+		default:
+			break;
+		case CChoreoEvent::SPEAK:
+			{
+				// Defined in SoundEmitterSystem.cpp
+				// NOTE:  The script entries associated with .vcds are forced to preload to avoid
+				//  loading hitches during triggering
+				PrecacheScriptSound( event->GetParameters() );
+
+				if ( event->GetCloseCaptionType() == CChoreoEvent::CC_MASTER && 
+					 event->GetNumSlaves() > 0 )
+				{
+					char tok[ CChoreoEvent::MAX_CCTOKEN_STRING ];
+					if ( event->GetPlaybackCloseCaptionToken( tok, sizeof( tok ) ) )
+					{
+						PrecacheScriptSound( tok );
+					}
+				}
+			}
+			break;
+		}
+	}
+    }
 
 	FreeSceneFileMemory( pBuffer );
 	return pScene;
@@ -5665,23 +5724,25 @@ CON_COMMAND( scene_flush, "Flush all .vcds from the cache and reload from disk."
 
 class InMemoryFileReadBinary : public IFileReadBinary {
 public:
-    InMemoryFileReadyBinary( const char *m_ptr, int size )
+    InMemoryFileReadBinary( const char *m_ptr, int size )
         : m_begin( m_ptr ), m_size( size ), m_curPos( 0 )
     {}
 
-    virtual int open( const char *pFileName ) { return 0; }
+    virtual int open( const char *pFileName ) { return 1; }
     virtual int read( void *pOutput, int size, int file ) {
-        assert( !file );
-        int toRead = min( size, m_size - m_curPos );
+        assert( file == 1 );
+        int toRead = std::max( std::min( size, m_size - m_curPos ), 0 );
         memcpy( pOutput, m_begin + m_curPos, toRead );
+        m_curPos += toRead;
         return toRead;
     }
-    virtual void close( int file ) { assert( !file ); }
-    virtual void seek( int file, int pos ) { assert( !file ); m_curPos = pos; }
-    virtual void size( int file ) { assert( !file ); return m_size; }
+    virtual void close( int file ) { assert( file == 1 ); }
+    virtual void seek( int file, int pos ) { assert( file == 1 ); m_curPos = pos; }
+    virtual unsigned int tell( int file ) { assert( file == 1 ); return m_curPos; }
+    virtual unsigned int size( int file ) { assert( file == 1 ); return m_size; }
 
 private:
-    char *m_begin;
+    const char *m_begin;
     int   m_size;
     int   m_curPos;
 };
@@ -5690,13 +5751,16 @@ static bool GetSentenceFromWavBuffer( const CUtlBuffer &buffer,
         CSentence &sentence ) 
 {
     /* open wav to determine length of sentence */
-    InMemoryFileReadBinary inMem( res->m_wavBuffer->Base(), 
-            res->m_wavBuffer->TellPut() );
+    InMemoryFileReadBinary inMem( (const char *)buffer.Base(), buffer.TellPut() );
     InFileRIFF riff( "stub", inMem );
-    IterateRIFF riffIterator( riff, rif.RIFFSize() );
+    IterateRIFF walk( riff, riff.RIFFSize() );
+
+    fwrite( (const char *)buffer.Base(), 1, buffer.TellPut(), stderr );
+    DevMsg( "%d/%d/%d\n", riff.RIFFSize(), buffer.TellPut(), inMem.tell( 1 ) );
 
     bool found = false;
     while ( walk.ChunkAvailable() ) {
+        //DevMsg( "chunk_name=%08x\n", walk.ChunkName() );
         if ( walk.ChunkName() == WAVE_VALVEDATA ) {
             found = true;
 
@@ -5717,57 +5781,108 @@ static bool GetSentenceFromWavBuffer( const CUtlBuffer &buffer,
     return found;
 }
 
-const int maxProcessedSoundCount = 1024;
+const int maxProcessedSoundCount = 99;
 static int processedSoundCount = 10;
 
-static void WriteSceneTemplateToDisk( float startTime, float endTime,
-    const CUtlBuffer &wavBuffer )
+static void WriteSceneTemplateToDisk( float startTime, float endTime, CUtlBuffer &wavBuffer )
 {
     int fileId = processedSoundCount++;
     CUtlBuffer vcdBuffer;
-    CUtlString musicId, musicPath;
+    CUtlString musicId, musicPath, sceneTemplate;
 
-    musicId.Format( "gman_%03d", fileId );
-    musicPath = "sound/npc/Gman/" + musicId + ".wav";
+    musicId.Format( "gman_%02d", fileId );
 
-    /* TODO */
-    vcdBuffer.Put( "" );
+    musicPath = "sound/vo/gman_misc/";
+    musicPath += musicId;
+    musicPath += ".wav";
+
+    sceneTemplate.Format(
+        "actor \"gman\"\n"
+        "{\n"
+        "  channel \"audio\"\n"
+        "  {\n"
+        "    event speak \"Trainride.gman_%02d\"\n"
+        "    {\n"
+        "      time %f %f\n"
+        "      param \"Trainride.gman_%02d\"\n"
+        "      fixedlength\n"
+        "      cctype \"cc_master\"\n"
+        "      cctoken \"\"\n"
+        "    }\n"
+        "  }\n"
+        "  channel \"look\"\n"
+        "  {\n"
+        "    event lookat \"Look at !player\"\n"
+        "    {\n"
+        "      time %f %f\n"
+        "      param \"!player\"\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "\n"
+        "scalesettings\n"
+        "{\n"
+        "  \"CChoreoView\" \"100\"\n"
+        "  \"RampTool\" \"100\"\n"
+        "  \"SceneRampTool\" \"100\"\n"
+        "}\n"
+        "fps 60\n"
+        "snap off\n"
+        "ignorePhonemes off\n",
+        fileId, startTime, endTime, fileId, startTime, endTime );
+
+
+    vcdBuffer.Put( sceneTemplate.Get(), sceneTemplate.Length() );
 
     if ( 
-        !filesystem->WriteFile( "scenes/npc/gman_misc/gman_mine.vcd", 
-            NULL, vcdBuffer )
-        || !filesystem->WriteFile( musicPath.Get(), NULL, wavBuffer )) 
+        !filesystem->WriteFile( "scenes/npc/gman/gman_mine.vcd", NULL, vcdBuffer )
+       )
     {
-        Warning( "wrint vcd-scene or sound-file failed\n" );
+        Warning( "write vcd-scene  failed\n" );
+    }
+
+
+    if ( 
+        !filesystem->WriteFile( musicPath.Get(), NULL, wavBuffer )
+       )
+    {
+        Warning( "write vcd-sound failed\n" );
     }
 }
 
-static void SceneStartCallback( void *data ) {
-    TextToSpeechResults_t *res = (TextToSpeechResults_t *)data;
-
-    if ( res->m_failure ) {
-        Warning( "SceneStartCallback(): fetch failured: %s\n",
-            res->m_failureReason.Get() );
+static void SceneStartCallback( TextToSpeechResults_t &res ) {
+    if ( res.m_failure ) {
+        Warning( "SceneStartCallback(): fetch failured: %d/%s\n",
+            res.m_failure,
+            res.m_failureReason.Get() );
         return;
     }
 
-    if ( !res->m_wavBuffer->TellPut() ) {
+    if ( !res.m_wavBuffer->TellPut() ) {
         Warning( "SceneStartCallback(): wavBuffer is empty\n" );
         return;
     }
 
     CSentence sentence;
-    if ( !GetSentenceFromWavBuffer( *res->m_wavBuffer, sentence ) ) {
+    if ( !GetSentenceFromWavBuffer( *res.m_wavBuffer, sentence ) ) {
         return;
     }
 
     float startTime, endTime;
     sentence.GetEstimatedTimes( startTime, endTime );
 
-    WriteSceneTemplateToDisk( startTime, endTime, res->m_wavBuffer );
+    WriteSceneTemplateToDisk( startTime, endTime, *res.m_wavBuffer );
 
-    SendReload();
-    SendStart();
+    const char *scEntityName = "scene2_lcs_intro";
+    CSceneEntity *ent = dynamic_cast<CSceneEntity *>(gEntList.FindEntityByName( NULL,
+                scEntityName ));
+
+    if ( ent ) {
+        g_EventQueue.AddEvent( ent, "Reload", 0, ent, ent );
+        g_EventQueue.AddEvent( ent, "Start", 0, ent, ent );
+    } else {
+        DevWarning( "Can't find entity with name `%s'\n", scEntityName );
+    }
 }
 
 CON_COMMAND( scene_start, "start scene in entity" )
@@ -5783,17 +5898,18 @@ CON_COMMAND( scene_start, "start scene in entity" )
     }
 
     TextToSpeechParams_t params;
-    params.m_text = args.Arg( 2 );
+    params.m_text = args.Arg( 1 );
 
+    params.m_authUrl = "https://api.att.com/oauth/v4/token";
     params.m_ttsUrl = "https://api.att.com/speech/v3/textToSpeech";
-    params.m_convUrl = "http:://192.168.0.101:19999/";
+    params.m_convUrl = "http://192.168.0.100:19999/";
 
     params.m_appKey = "5p8eyqkvfynsw9mlngcvrs6t1d1saxmp";
     params.m_appSecret = "0q4z4cgxonq50imw0ohinehpduj8updb";
 
     params.m_absPath = "";
 
-    params.m_onDone = CreateFunctor( &SceneStartCallback );
+    params.m_onDone = boost::bind( &SceneStartCallback, _1 );
 
     g_pThreadPool->AddJob( new CTextToSpeechJob( params ) );
 }

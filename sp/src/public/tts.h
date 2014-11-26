@@ -5,19 +5,11 @@
 #pragma once
 #endif
 
-struct TextToSpeechParams_t {
-    CUtlString m_text;
+#include "tier1/tier1.h"
+#include "tier1/refcount.h"
+#include "tier1/utlbuffer.h"
 
-    CUtlString m_ttsUrl;
-    CUtlString m_convUrl;
-
-    CUtlString m_appKey;
-    CUtlString m_appSecret;
-
-    CUtlString m_absPath;
-
-    CRefPtr<CFunctor> m_onDone;
-};
+#include "http.h"
 
 struct TextToSpeechResults_t {
     int        m_failure;
@@ -26,23 +18,39 @@ struct TextToSpeechResults_t {
     CUtlBuffer *m_wavBuffer;
 };
 
-enum { TTS_ST_INIT, 
+struct TextToSpeechParams_t {
+    CUtlString m_text;
+
+    CUtlString m_authUrl;
+    CUtlString m_ttsUrl;
+    CUtlString m_convUrl;
+
+    CUtlString m_appKey;
+    CUtlString m_appSecret;
+
+    CUtlString m_absPath;
+
+    boost::function1<void, TextToSpeechResults_t> m_onDone;
+};
+
+enum TextToSpeechState_t 
+     { TTS_ST_INIT, 
        TTS_ST_AUTH, 
        TTS_ST_WAV,  
        TTS_ST_CONV,  
        TTS_ST_DONE,  
-} TextToSpeechState_t;
+};
 
 
-class CTextToSpeechJob : public CFunctorJob, public COnDoneCallback {
+class CTextToSpeechJob : public CFunctorJob, public COnDoneCallback<TextToSpeechResults_t> {
 public:
-    CTextToSpeechJob( TextToSpeechParams_t &params );
+    CTextToSpeechJob( const TextToSpeechParams_t &params );
     virtual JobStatus_t DoExecute( void );
 
 private:
-    void OnAuthReceived( HttpRequestResults_t *data );
-    void OnWavReceived( HttpRequestResults_t *data );
-    void OnWavConvReceived( HttpRequestResults_t *data );
+    void OnAuthReceived( HttpRequestResults_t &data );
+    void OnWavReceived( HttpRequestResults_t &data );
+    void OnWavConvReceived( HttpRequestResults_t &data );
 
     TextToSpeechState_t m_state;
     TextToSpeechParams_t m_params;

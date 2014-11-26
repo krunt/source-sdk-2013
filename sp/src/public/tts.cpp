@@ -1,28 +1,35 @@
 
 #include "tts.h"
 
-TextToSpeechParams_t::TextToSpeechParams_t() 
-    : m_onDone( NULL )
-{}
+#include <jsoncpp/json/json.h>
 
-CTextToSpeechJob::CTextToSpeechJob( const  &params )
+#include <boost/bind.hpp>
+
+CTextToSpeechJob::CTextToSpeechJob( const TextToSpeechParams_t &params )
     : CFunctorJob( NULL, "" ), m_params( params ), m_state( TTS_ST_AUTH )
 {
+    m_failure = 0;
+    m_failureReason = "";
+
     SetOnDone( params.m_onDone );
 }
 
-void CTextToSpeechJob::OnAuthReceived( HttpRequestResults_t *data ) {
+void CTextToSpeechJob::OnAuthReceived( HttpRequestResults_t &data ) {
     Json::Value args;
     Json::Reader jsonReader;
 
-    if ( data->m_failure || !jsonReader.parse( data->m_outputBuffer->Base(),
-            data->m_outputBuffer->Base() + data->m_outputBuffer->TellPut() ) 
+    if ( data.m_failure || !jsonReader.parse( (const char *)data.m_outputBuffer->Base(),
+            (const char *)data.m_outputBuffer->Base() + data.m_outputBuffer->TellPut(), args ) 
             || !args.isMember( "access_token" ) )
     {
         m_state = TTS_ST_DONE;
-        if ( !data->m_failure ) {
+        if ( !data.m_failure ) {
             m_failure = 1;
-            m_failureReason = "invalid json received";
+            if ( !args.isMember( "access_token" ) ) {
+                m_failureReason = "no access token found";
+            } else {
+                m_failureReason = "invalid json received";
+            }
         }
 
     } else { 
@@ -34,22 +41,28 @@ void CTextToSpeechJob::OnAuthReceived( HttpRequestResults_t *data ) {
     DoExecute();
 }
 
-void CTextToSpeechJob::OnWavReceived( HttpRequestResults_t *data ) {
-    if ( data->m_failure ) {
+void CTextToSpeechJob::OnWavReceived( HttpRequestResults_t &data ) {
+    if ( data.m_failure ) {
+        m_failure = data.m_failure;
+        m_failureReason = *data.m_failureReason;
+
         m_state = TTS_ST_DONE;
 
     } else { 
         // success
         m_state = TTS_ST_CONV;
-        m_wavBuffer.Swap( *data->m_outputBuffer );
+        m_wavBuffer.Swap( *data.m_outputBuffer );
     }
 
     DoExecute();
 }
 
-void CTextToSpeechJob::OnWavConvReceived( HttpRequestResults_t *data ) {
-    if ( !data->m_failure ) {
-        m_wavBuffer.Swap( *data->m_outputBuffer );
+void CTextToSpeechJob::OnWavConvReceived( HttpRequestResults_t &data ) {
+    if ( data.m_failure ) {
+        m_failure = data.m_failure;
+        m_failureReason = *data.m_failureReason;
+    } else {
+        m_wavBuffer.Swap( *(data.m_outputBuffer) );
     }
 
     m_state = TTS_ST_DONE;
@@ -62,52 +75,63 @@ JobStatus_t CTextToSpeechJob::DoExecute( void ) {
     switch ( m_state ) {
 
     case TTS_ST_AUTH: {
-        HTTPRequestsParams_t params;
+        HttpRequestParams_t params;
 
         params.m_requestType = HTTP_POST;
-        params.m_url = m_params.m_ttsUrl;
+        params.m_url = m_params.m_authUrl;
 
         params.m_headers.AddToTail(  
             "Content-Type: application/x-www-form-urlencoded" );
         params.m_headers.AddToTail( "Accept: application/json" );
 
         params.m_inputOpMethod = HTTP_ME_BUFFER;
-        params.m_inputBuffer = "client_id=" + m_params.m_appKey
-            + "&client_secret=" + m_params.m_appSecret
-            + "&scope=TTS&grant_type=client_credentials";
+
+        CUtlString t = "client_id=";
+        t += m_params.m_appKey;
+        t += "&client_secret=";
+        t += m_params.m_appSecret;
+        t += "&scope=TTS&grant_type=client_credentials";
+
+        params.m_inputBuffer.Put( t.Get(), t.Length() );
 
         params.m_outputOpMethod = HTTP_ME_BUFFER;
-        params.m_onDone = CreateFunctor( this, CTextToSpeechJob::OnAuthReceived );
+        params.m_onDone = boost::bind( &CTextToSpeechJob::OnAuthReceived, this, _1 );
 
         g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
         break;
     }
 
     case TTS_ST_WAV: {
-        HTTPRequestsParams_t params;
+        HttpRequestParams_t params;
 
         params.m_requestType = HTTP_POST;
         params.m_url = m_params.m_ttsUrl;
 
-        params.m_headers.AddToTail( "Authorization: Bearer " + m_accessToken );
+        CUtlString t = "Authorization: Bearer ";
+        t += m_accessToken;
+
+        params.m_headers.AddToTail( t );
         params.m_headers.AddToTail( "Accept: audio/amr" );
         params.m_headers.AddToTail( "Content-Type: text/plain" );
+        params.m_headers.AddToTail( "X-Arg: Volume=250,Tempo=-7,VoiceName=mike" );
 
         params.m_inputOpMethod = HTTP_ME_BUFFER;
-        params.m_inputBuffer = m_params.m_text;
+        params.m_inputBuffer.Put( m_params.m_text.Get(), m_params.m_text.Length() );
 
         params.m_outputOpMethod = HTTP_ME_BUFFER;
-        params.m_onDone = CreateFunctor( this, CTextToSpeechJob::OnWavReceived );
+        params.m_onDone = boost::bind( &CTextToSpeechJob::OnWavReceived, this, _1 );
 
         g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
         break;
     }
 
     case TTS_ST_CONV: {
-        HTTPRequestsParams_t params;
+        HttpRequestParams_t params;
 
         params.m_requestType = HTTP_POST;
         params.m_url = m_params.m_convUrl;
+
+        params.m_headers.AddToTail( "Content-Type: audio/amr" );
 
         params.m_inputOpMethod = HTTP_ME_BUFFER;
         params.m_inputBuffer.Swap( m_wavBuffer );
@@ -119,8 +143,7 @@ JobStatus_t CTextToSpeechJob::DoExecute( void ) {
             params.m_outputFile = m_params.m_absPath;
         }
 
-        params.m_onDone = CreateFunctor( this, 
-            CTextToSpeechJob::OnWavConvReceived );
+        params.m_onDone = boost::bind( &CTextToSpeechJob::OnWavConvReceived, this, _1 );
 
         g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
         break;
@@ -135,7 +158,7 @@ JobStatus_t CTextToSpeechJob::DoExecute( void ) {
             results.m_wavBuffer = &m_wavBuffer;
         }
 
-        CallOnDone( &results );
+        CallOnDone( results );
         break;
     }};
 

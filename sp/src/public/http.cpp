@@ -1,14 +1,28 @@
-#include "http.h"
-#include <curl/curl.h>
-
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <curl/curl.h>
 
+#include "vstdlib/jobthread.h"
 
-HttpRequestParams_t::HttpRequestParams_t() 
-    : m_onDone( NULL )
-{}
+#include "http.h"
+
+HttpRequestParams_t::HttpRequestParams_t( const HttpRequestParams_t &params ) {
+    m_requestType = params.m_requestType;
+
+    m_url = params.m_url;
+    m_headers = params.m_headers;
+
+    m_inputOpMethod = params.m_inputOpMethod;
+    m_inputBuffer.CopyBuffer( params.m_inputBuffer );
+    m_inputFile = params.m_inputFile;
+
+    m_outputOpMethod = params.m_outputOpMethod;
+    m_outputBuffer.CopyBuffer( params.m_outputBuffer );
+    m_outputFile = params.m_outputFile;
+
+    m_onDone = params.m_onDone;
+}
 
 CHttpRequestJob::CHttpRequestJob( const HttpRequestParams_t &params )
     : CFunctorJob( NULL, "" ), m_params( params )
@@ -33,6 +47,7 @@ static size_t MyReadDataViaBuffer(char *ptr, size_t size,
 {
     std::stringstream *ss = (std::stringstream *)userdata;
     ss->read( ptr, size * nmemb );
+    //DevMsg( "MyReadDataViaBuffer(): %d `%*s'\n", ss->gcount(), size * nmemb, ptr );
     return ss->gcount();
 }
 
@@ -41,6 +56,7 @@ static size_t MyWriteDataViaBuffer(char *ptr, size_t size,
 {
     std::stringstream *ss = (std::stringstream *)userdata;
     ss->write( ptr, size * nmemb );
+    //DevMsg( "MyWriteDataViaBuffer(): %d `%*s'\n", size * nmemb, size * nmemb, ptr );
     return size * nmemb;
 }
 
@@ -65,6 +81,8 @@ JobStatus_t CHttpRequestJob::DoExecute() {
     int i;
     const bool verbose = true;
     struct curl_slist *slist = NULL;
+    std::stringstream inputBufStream, outputBufStream;
+    std::fstream inputFileStream, outputFileStream;
     CURL *curl;
 
     curl = curl_easy_init();
@@ -75,13 +93,16 @@ JobStatus_t CHttpRequestJob::DoExecute() {
         goto out;
     }
 
+
     if ( verbose ) {
-        curl_easy_setopt( curl, CURLOPT_HEADER, 1 );
+        FILE *fd = fopen( "/home/akuts/curl.log", "w" );
+        //curl_easy_setopt( curl, CURLOPT_HEADER, 1 );
         curl_easy_setopt( curl, CURLOPT_VERBOSE, 1 );
+        curl_easy_setopt( curl, CURLOPT_STDERR, fd );
     }
 
-    switch ( m_params.m_request_type ) {
-    case HTTP_GET: curl_easy_setopt( curl, CURLOPT_GET, 1 ); break;
+    switch ( m_params.m_requestType ) {
+    case HTTP_GET: break;
     case HTTP_POST: curl_easy_setopt( curl, CURLOPT_POST, 1 ); break;
     default: assert( 0 );
     };
@@ -97,11 +118,8 @@ JobStatus_t CHttpRequestJob::DoExecute() {
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, slist);
     }
 
-    std::stringstream inputBufStream, outputBufStream;
-    std::fstream inputFileStream, outputFileStream;
-
     if ( m_params.m_inputOpMethod == HTTP_ME_BUFFER ) {
-        inputBufStream.write( m_params.m_inputBuffer.Base(), 
+        inputBufStream.write( (const char *)m_params.m_inputBuffer.Base(), 
                 m_params.m_inputBuffer.TellPut() );
         curl_easy_setopt( curl, CURLOPT_READFUNCTION, &MyReadDataViaBuffer );
         curl_easy_setopt( curl, CURLOPT_POSTFIELDSIZE, 
@@ -120,7 +138,7 @@ JobStatus_t CHttpRequestJob::DoExecute() {
         curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, &MyWriteDataViaBuffer );
         curl_easy_setopt( curl, CURLOPT_WRITEDATA, &outputBufStream );
     } else {
-        outputFileStream.open( m_params.m_inputFile.Get(),
+        outputFileStream.open( m_params.m_outputFile.Get(),
                 std::ios_base::out | std::ios_base::binary );
         curl_easy_setopt( curl, CURLOPT_WRITEFUNCTION, &MyWriteDataViaFile );
         curl_easy_setopt( curl, CURLOPT_WRITEDATA, &outputFileStream );
@@ -145,7 +163,7 @@ out:
     results.m_failure = m_failure;
     results.m_failureReason = &m_failureReason;
 
-    CallOnDone( &m_params );
+    CallOnDone( results );
 
     return JOB_OK;
 }
