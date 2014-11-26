@@ -1,0 +1,59 @@
+#if !defined( IENGINESTT_H )
+#define IENGINESTT_H
+
+#ifdef _WIN32
+#pragma once
+#endif
+
+#include "tier1/tier1.h"
+#include "tier1/refcount.h"
+#include "tier1/utlbuffer.h"
+
+struct SpeechToTextResults_t {
+    int        m_failure;
+    CUtlString m_failureReason;
+
+    CUtlString m_text;
+};
+
+struct SpeechToTextParams_t {
+    CUtlBuffer m_wavBuffer;
+
+    CUtlString m_authUrl;
+    CUtlString m_sttUrl;
+
+    CUtlString m_appKey;
+    CUtlString m_appSecret;
+
+    boost::function1<void, SpeechToTextResults_t> m_onDone;
+};
+
+enum SpeechToTextState_t 
+     { STT_ST_INIT, 
+       STT_ST_AUTH, 
+       STT_ST_TEXT,  
+       STT_ST_DONE,  
+};
+
+class CSpeechToTextJob : public CFunctorJob, 
+    public COnDoneCallback<SpeechToTextResults_t> 
+{
+public:
+    CSpeechToTextJob( const SpeechToTextParams_t &params );
+    virtual JobStatus_t DoExecute( void );
+
+private:
+    void OnAuthReceived( HttpRequestResults_t &data );
+    void OnTextReceived( HttpRequestResults_t &data );
+
+    SpeechToTextState_t m_state;
+    SpeechToTextParams_t m_params;
+
+    int m_failure;
+    CUtlString m_failureReason;
+
+    CUtlString m_accessToken;
+    CUtlBuffer m_text;
+}
+
+#endif // IENGINESTT_H

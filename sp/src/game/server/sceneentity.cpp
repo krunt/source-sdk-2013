@@ -38,6 +38,7 @@
 #include "tier2/riff.h"
 #include "sentence.h"
 #include "eventqueue.h"
+#include "inmemoryio.h"
 
 #include <algorithm>
 #include <boost/bind.hpp>
@@ -5721,31 +5722,6 @@ CON_COMMAND( scene_flush, "Flush all .vcds from the cache and reload from disk."
 	scenefilecache->Reload();
 	Msg( "   done\n" );
 }
-
-class InMemoryFileReadBinary : public IFileReadBinary {
-public:
-    InMemoryFileReadBinary( const char *m_ptr, int size )
-        : m_begin( m_ptr ), m_size( size ), m_curPos( 0 )
-    {}
-
-    virtual int open( const char *pFileName ) { return 1; }
-    virtual int read( void *pOutput, int size, int file ) {
-        assert( file == 1 );
-        int toRead = std::max( std::min( size, m_size - m_curPos ), 0 );
-        memcpy( pOutput, m_begin + m_curPos, toRead );
-        m_curPos += toRead;
-        return toRead;
-    }
-    virtual void close( int file ) { assert( file == 1 ); }
-    virtual void seek( int file, int pos ) { assert( file == 1 ); m_curPos = pos; }
-    virtual unsigned int tell( int file ) { assert( file == 1 ); return m_curPos; }
-    virtual unsigned int size( int file ) { assert( file == 1 ); return m_size; }
-
-private:
-    const char *m_begin;
-    int   m_size;
-    int   m_curPos;
-};
 
 static bool GetSentenceFromWavBuffer( const CUtlBuffer &buffer, 
         CSentence &sentence ) 
