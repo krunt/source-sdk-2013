@@ -39,6 +39,8 @@
 #include "sentence.h"
 #include "eventqueue.h"
 #include "inmemoryio.h"
+#include "sound_recorder.h"
+#include "stt.h"
 
 #include <algorithm>
 #include <boost/bind.hpp>
@@ -5888,4 +5890,35 @@ CON_COMMAND( scene_start, "start scene in entity" )
     params.m_onDone = boost::bind( &SceneStartCallback, _1 );
 
     g_pThreadPool->AddJob( new CTextToSpeechJob( params ) );
+}
+
+static void SttStartCallback( SpeechToTextResults_t &res ) {
+    if ( res.m_failure ) {
+        DevWarning( "stt failed: `%s'\n", res.m_failureReason.Get() );
+    } else {
+        DevMsg( "stt results: text=`%s'\n", res.m_text.Get() );
+    }
+}
+
+CON_COMMAND( stt_start, "start recording speech to text" )
+{
+    if ( !GetSoundRecorder()->StartRecording() ) {
+        return;
+    }
+
+    SpeechToTextParams_t params;
+    params.m_authUrl = "https://api.att.com/oauth/v4/token";
+    params.m_sttUrl = "https://api.att.com/speech/v3/speechToText";
+
+    params.m_appKey = "yp9d7i3xjqgl1d7cymq5qzba0b9xxpkh";
+    params.m_appSecret = "m8pagrvawgwxtqhdyr1fik2ghnkywspp";
+
+    params.m_onDone = boost::bind( &SttStartCallback, _1 );
+
+    g_pThreadPool->AddJob( new CSpeechToTextJob( params ) );
+}
+
+CON_COMMAND( stt_stop, "stop recording speech to text" )
+{
+    GetSoundRecorder()->StopRecording();
 }

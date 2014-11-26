@@ -63,7 +63,7 @@ $Configuration
 	{
 		$AdditionalDependencies			"$BASE winmm.lib" [$WIN32]
 		$SystemLibraries                                                        "iconv" [$OSXALL]
-        $SystemLibraries                                                    "curl -ljsoncpp"
+        $SystemLibraries                       "curl -ljsoncpp -lportaudio "
 	}
 }
 
@@ -260,10 +260,14 @@ $Project
 		$File	"bitstring.h"
 		$File	"bmodels.cpp"
 		$File	"$SRCDIR\public\bone_setup.h"
-		$File	"$SRCDIR\public\http.h"
 		$File	"$SRCDIR\public\http.cpp"
-		$File	"$SRCDIR\public\tts.h"
+		$File	"$SRCDIR\public\http.h"
 		$File	"$SRCDIR\public\tts.cpp"
+		$File	"$SRCDIR\public\tts.h"
+		$File	"$SRCDIR\public\stt.cpp"
+		$File	"$SRCDIR\public\stt.h"
+		$File	"$SRCDIR\public\sound_recorder.cpp"
+		$File	"$SRCDIR\public\sound_recorder.h"
 		$File	"$SRCDIR\public\sentence.cpp"
 		$File	"$SRCDIR\public\sentence.h"
 		$File	"buttons.cpp"

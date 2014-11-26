@@ -1,15 +1,17 @@
 
 #include "sound_recorder.h"
 
-static CSoundRecorder soundRecorder;
-g_soundRecorder = &soundRecorder;
+#include "inmemoryio.h"
+
+#undef min
+#undef max
+#include <algorithm> 
 
 CSoundRecorder::CSoundRecorder( const CSoundRecordParams_t &params )
-    : m_params( params ), m_recording( false ), m_samplesPos( 0 ), 
+    : m_params( params ), m_recording( 0 ), m_toStop( 0 ), m_samplesPos( 0 ), 
         m_wavBuilt( false )
 {
-    int numBytes = m_params.m_format 
-        * m_params.m_sampleRate * m_params.m_maxDuration;
+    int numBytes = m_params.m_sampleRate * m_params.m_maxDuration;
     m_samples.Grow( numBytes );
 
     m_inError = false;
@@ -26,6 +28,12 @@ CSoundRecorder::~CSoundRecorder( void ) {
     }
 }
 
+void CSoundRecorder::Release( void ) {
+    if ( !m_inError ) {
+        Pa_Terminate();
+    }
+}
+
 static int PaRecordCallback( 
         const void *input, void *output,
         unsigned long frameCount,
@@ -33,12 +41,16 @@ static int PaRecordCallback(
         PaStreamCallbackFlags statusFlags,
         void *userData )
 {
-    CSoundRecorder *rec = (CSoundRecord *)userData;
-    return rec->OnRecordingCallback( static_cast<unsigned short *>( input ),
+    CSoundRecorder *rec = (CSoundRecorder *)userData;
+    return rec->OnRecordingCallback( static_cast<const unsigned short *>( input ),
         frameCount );
 }
 
 bool CSoundRecorder::NeedTerminate( void ) const {
+    if ( m_toStop ) { 
+        return true;
+    }
+
     bool atEnd = m_samplesPos == m_samples.Count();
 
     if ( !atEnd ) {
@@ -77,7 +89,7 @@ int CSoundRecorder::OnRecordingCallback( const unsigned short *input,
     m_samplesPos += samplesToCopy;
 
     if ( NeedTerminate() ) {
-        m_recording = false;
+        m_recording = 0;
         m_wavBuilt = false;
 
         return paComplete;
@@ -124,16 +136,17 @@ bool CSoundRecorder::StartRecording( void ) {
         return false;
     }
 
+    m_samplesPos = 0;
+    m_wavBuffer.Clear();
+    m_recording = 1;
+    m_wavBuilt = false;
+    m_toStop = 1;
+
     err = Pa_StartStream( &m_stream );
     if( err != paNoError ) {
         DevWarning( "Pa_StartStream(): failed start sound stream\n" );
         return false;
     }
-
-    m_samplesPos = 0;
-    m_wavBuffer.Clear();
-    m_recording = true;
-    m_wavBuilt = false;
 
     return true;
 }
@@ -148,13 +161,7 @@ bool CSoundRecorder::StopRecording( void ) {
         return false;
     }
 
-    PaError err = Pa_CloseStream( m_stream );
-    if ( err != paNoError ) {
-        DevWarning( "Pa_CloseStream() failed\n" );
-    }
-
-    m_recording = false;
-    BuildWavBuffer();
+    m_toStop = 1;
 
     return true;
 }
@@ -182,13 +189,13 @@ void CSoundRecorder::BuildWavBuffer( void ) {
 	format.nBlockAlign = 2;
 	format.wBitsPerSample = 16;
 	format.cbSize = sizeof( format );
-	store.ChunkWrite( WAVE_FMT, &format, sizeof( format ) );
+	outRiff.ChunkWrite( WAVE_FMT, &format, sizeof( format ) );
 
-    store.ChunkStart( WAVE_DATA );
-    for ( int i = 0; i < m_nsamplesPos; ++i ) {
-        store.ChunkWriteData( &m_samples[i], sizeof( unsigned short ) );
+    outRiff.ChunkStart( WAVE_DATA );
+    for ( int i = 0; i < m_samplesPos; ++i ) {
+        outRiff.ChunkWriteData( &m_samples[i], sizeof( unsigned short ) );
     }
-    store.ChunkFinish();
+    outRiff.ChunkFinish();
 
     m_wavBuffer.Swap( inmem.GetBuffer() );
 
@@ -202,3 +209,16 @@ CUtlBuffer &CSoundRecorder::GetWavBuffer( void ) {
     return m_wavBuffer;
 }
 
+static CRefPtr<CSoundRecorder> g_soundRecorder;
+
+extern CSoundRecorder *GetSoundRecorder( void ) {
+    if ( !g_soundRecorder ) {
+        CSoundRecordParams_t params;
+        params.m_sampleRate = 16000;
+        params.m_maxDuration = 10;
+        params.m_autoStop = 0;
+
+        g_soundRecorder = new CSoundRecorder( params );
+    }
+    return g_soundRecorder;
+}
