@@ -72,18 +72,20 @@ public:
     CSpeechToTextJob( const SpeechToTextParams_t &params );
     virtual JobStatus_t DoExecute( void );
 
-private:
-    void OnWavReceived( WavRecordingResults_t &data );
-    void OnAuthReceived( HttpRequestResults_t &data );
-    void OnTextReceived( HttpRequestResults_t &data );
+protected:
+    virtual void OnWavReceived( WavRecordingResults_t &data );
+    virtual void OnAuthReceived( HttpRequestResults_t &data );
+    virtual void OnTextReceived( HttpRequestResults_t &data );
+
+    virtual void ThinkOnWav( void );
+    virtual void ThinkOnAuth( void );
+    virtual void ThinkOnText( void );
 
     SpeechToTextState_t m_state;
     SpeechToTextParams_t m_params;
 
     int m_failure;
     CUtlString m_failureReason;
-
-    CUtlString m_accessToken;
 
     CUtlBuffer m_wavBuffer;
     CUtlString m_text;

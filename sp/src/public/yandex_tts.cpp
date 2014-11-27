@@ -18,6 +18,7 @@ void CYandexTextToSpeechJob::ThinkOnWav( void ) {
     params.m_requestType = HTTP_GET;
     params.m_url = m_params.m_ttsUrl;
 
+    params.m_url += "?text=";
     params.m_url += urlEncode( m_params.m_text.Get(), m_params.m_text.Length() );
     params.m_url += "&lang=ru-RU";
     params.m_url += "&speaker-zahar";

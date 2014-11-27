@@ -66,4 +66,6 @@ protected:
     CUtlBuffer m_wavBuffer;
 };
 
+Get
+
 #endif // IENGINETTS_H
