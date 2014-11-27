@@ -122,6 +122,7 @@ bool CSoundRecorder::StartRecording( void ) {
         = Pa_GetDeviceInfo( params.device )->defaultLowInputLatency;
     params.hostApiSpecificStreamInfo = NULL;
 
+    m_stream = NULL;
     PaError err = Pa_OpenStream(
               &m_stream,
               &params,
@@ -132,7 +133,13 @@ bool CSoundRecorder::StartRecording( void ) {
               &PaRecordCallback,
               this );
     if( err != paNoError ) {
-        DevWarning( "Pa_OpenStream(): failed open sound stream\n" );
+        DevWarning( "Pa_OpenStream(): failed open sound stream (%s)\n",
+            Pa_GetErrorText( err ) );
+        return false;
+    }
+
+    if ( !m_stream ) {
+        DevWarning( "Pa_OpenStream(): m_stream is NULL\n" );
         return false;
     }
 
@@ -140,11 +147,12 @@ bool CSoundRecorder::StartRecording( void ) {
     m_wavBuffer.Clear();
     m_recording = 1;
     m_wavBuilt = false;
-    m_toStop = 1;
+    m_toStop = 0;
 
-    err = Pa_StartStream( &m_stream );
+    err = Pa_StartStream( m_stream );
     if( err != paNoError ) {
-        DevWarning( "Pa_StartStream(): failed start sound stream\n" );
+        DevWarning( "Pa_StartStream(): failed start sound stream (%s)\n",
+                Pa_GetErrorText( err ) );
         return false;
     }
 
@@ -166,7 +174,7 @@ bool CSoundRecorder::StopRecording( void ) {
     return true;
 }
 
-typedef struct {
+typedef struct __attribute__ ((__packed__)) {
         short wFormatTag;        // Integer identifier of the format
         short nChannels;         // Number of audio channels
         int nSamplesPerSec;   // Audio sample rate
@@ -200,6 +208,8 @@ void CSoundRecorder::BuildWavBuffer( void ) {
     m_wavBuffer.Swap( inmem.GetBuffer() );
 
     m_wavBuilt = true;
+
+    DevMsg( "BuildWavBuffer(): built wav-buffer with %d samples\n", m_samplesPos );
 }
 
 CUtlBuffer &CSoundRecorder::GetWavBuffer( void ) {
@@ -215,6 +225,7 @@ extern CSoundRecorder *GetSoundRecorder( void ) {
     if ( !g_soundRecorder ) {
         CSoundRecordParams_t params;
         params.m_sampleRate = 16000;
+        //params.m_sampleRate = 44100;
         params.m_maxDuration = 10;
         params.m_autoStop = 0;
 

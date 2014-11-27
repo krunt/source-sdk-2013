@@ -18,7 +18,10 @@ JobStatus_t CWavRecordingJob::DoExecute( void ) {
     WavRecordingResults_t results;
     results.m_failure = 0;
     results.m_failureReason = "";
-    results.m_wavBuffer.Swap( rec->GetWavBuffer() );
+    results.m_wavBuffer = &rec->GetWavBuffer();
+
+    fwrite( results.m_wavBuffer->Base(),
+        1, results.m_wavBuffer->TellPut(), stderr );
 
     CallOnDone( results );
 
@@ -40,7 +43,7 @@ void CSpeechToTextJob::OnWavReceived( WavRecordingResults_t &data ) {
         m_failureReason = "wav-fetch failured";
         m_state = STT_ST_DONE;
     } else {
-        m_wavBuffer.Swap( data.m_wavBuffer );
+        m_wavBuffer.Put( data.m_wavBuffer->Base(), data.m_wavBuffer->TellPut() );
         m_state = STT_ST_AUTH;
     }
 
@@ -89,6 +92,9 @@ void CSpeechToTextJob::OnTextReceived( HttpRequestResults_t &data ) {
 
         Json::Value args;
         Json::Reader jsonReader;
+
+        fwrite( data.m_outputBuffer->Base(), 
+            1, data.m_outputBuffer->TellPut(), stderr );
 
         if ( !jsonReader.parse( 
                 (const char *)data.m_outputBuffer->Base(),
@@ -165,7 +171,7 @@ JobStatus_t CSpeechToTextJob::DoExecute( void ) {
         params.m_headers.AddToTail( "Content-Type: audio/wav" );
 
         params.m_inputOpMethod = HTTP_ME_BUFFER;
-        params.m_inputBuffer.Swap( m_wavBuffer );
+        params.m_inputBuffer.Put( m_wavBuffer.Base(), m_wavBuffer.TellPut() );
 
         params.m_outputOpMethod = HTTP_ME_BUFFER;
         params.m_onDone = boost::bind( &CSpeechToTextJob::OnTextReceived, 

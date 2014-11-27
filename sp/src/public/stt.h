@@ -22,7 +22,7 @@ struct WavRecordingResults_t {
     int        m_failure;
     CUtlString m_failureReason;
 
-    CUtlBuffer m_wavBuffer;
+    CUtlBuffer *m_wavBuffer;
 };
 
 struct WavRecordingParams_t {
