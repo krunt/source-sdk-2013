@@ -174,7 +174,7 @@ bool CSoundRecorder::StopRecording( void ) {
     return true;
 }
 
-typedef struct __attribute__ ((__packed__)) {
+typedef struct {
         short wFormatTag;        // Integer identifier of the format
         short nChannels;         // Number of audio channels
         int nSamplesPerSec;   // Audio sample rate
@@ -186,24 +186,41 @@ typedef struct __attribute__ ((__packed__)) {
 
 void CSoundRecorder::BuildWavBuffer( void ) {
     InMemoryFileWriteBinary inmem;
-    OutFileRIFF rf( "stub", inmem );
-    IterateOutputRIFF outRiff( rf );
 
-	WAVEFORMATEX format;
-	format.wFormatTag = WAVE_FORMAT_PCM;
-	format.nChannels = 1;
-	format.nSamplesPerSec = m_params.m_sampleRate;
-	format.nAvgBytesPerSec = m_params.m_sampleRate * sizeof(unsigned short);
-	format.nBlockAlign = 2;
-	format.wBitsPerSample = 16;
-	format.cbSize = sizeof( format );
-	outRiff.ChunkWrite( WAVE_FMT, &format, sizeof( format ) );
+    {
+        OutFileRIFF rf( "stub", inmem );
+        IterateOutputRIFF outRiff( rf );
+    
+    	WAVEFORMATEX format;
+    	format.wFormatTag = WAVE_FORMAT_PCM;
+    	format.nChannels = 1;
+    	format.nSamplesPerSec = m_params.m_sampleRate;
+    	format.nAvgBytesPerSec = m_params.m_sampleRate * sizeof(unsigned short);
+    	format.nBlockAlign = 2;
+    	format.wBitsPerSample = 16;
+    	format.cbSize = sizeof( format );
 
-    outRiff.ChunkStart( WAVE_DATA );
-    for ( int i = 0; i < m_samplesPos; ++i ) {
-        outRiff.ChunkWriteData( &m_samples[i], sizeof( unsigned short ) );
+        // fmt-header 
+        {
+            outRiff.ChunkStart( WAVE_FMT );
+            outRiff.WriteData( &format.wFormatTag, 2 );
+            outRiff.WriteData( &format.nChannels, 2 );
+            outRiff.WriteData( &format.nSamplesPerSec, 4 );
+            outRiff.WriteData( &format.nAvgBytesPerSec, 4 );
+            outRiff.WriteData( &format.nBlockAlign, 2 );
+            outRiff.WriteData( &format.wBitsPerSample, 2 );
+            outRiff.ChunkFinish();
+        }
+    
+        // data-content
+        {
+            outRiff.ChunkStart( WAVE_DATA );
+            for ( int i = 0; i < m_samplesPos; ++i ) {
+                outRiff.ChunkWriteData( &m_samples[i], sizeof( unsigned short ) );
+            }
+            outRiff.ChunkFinish();
+        }
     }
-    outRiff.ChunkFinish();
 
     m_wavBuffer.Swap( inmem.GetBuffer() );
 

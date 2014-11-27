@@ -45,20 +45,24 @@ enum TextToSpeechState_t
 class CTextToSpeechJob : public CFunctorJob, public COnDoneCallback<TextToSpeechResults_t> {
 public:
     CTextToSpeechJob( const TextToSpeechParams_t &params );
+    virtual ~CTextToSpeechJob() {}
+
     virtual JobStatus_t DoExecute( void );
 
-private:
-    void OnAuthReceived( HttpRequestResults_t &data );
-    void OnWavReceived( HttpRequestResults_t &data );
-    void OnWavConvReceived( HttpRequestResults_t &data );
+protected:
+    virtual void OnAuthReceived( HttpRequestResults_t &data );
+    virtual void OnWavReceived( HttpRequestResults_t &data );
+    virtual void OnWavConvReceived( HttpRequestResults_t &data );
+
+    virtual void ThinkOnAuth( void );
+    virtual void ThinkOnWav( void );
+    virtual void ThinkOnConv( void );
 
     TextToSpeechState_t m_state;
     TextToSpeechParams_t m_params;
 
     int m_failure;
     CUtlString m_failureReason;
-
-    CUtlString m_accessToken;
     CUtlBuffer m_wavBuffer;
 };
 
