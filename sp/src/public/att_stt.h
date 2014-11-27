@@ -20,6 +20,8 @@ protected:
 
 private: 
     CUtlString m_accessToken;
+
+    static CAttCachedAccessToken m_cachedAccessToken;
 };
 
 #endif // IENGINEATTSTT_H

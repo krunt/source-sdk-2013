@@ -20,10 +20,15 @@ void CAttSpeechToTextJob::OnAuthReceived( HttpRequestResults_t &data ) {
             }
         }
 
+        m_cachedAccessToken.StopUpdate();
+
     } else { 
         // success
         m_accessToken = args[ "access_token" ].asCString();
         m_state = STT_ST_TEXT;
+
+        m_cachedAccessToken.Init( m_accessToken, 
+            gpGlobals->curtime + args[ "expires_in" ].asInt() );
     }
 
     DoExecute();
@@ -71,30 +76,51 @@ void CAttSpeechToTextJob::OnTextReceived( HttpRequestResults_t &data ) {
 }
 
 void CAttSpeechToTextJob::ThinkOnAuth( void ) {
-    HttpRequestParams_t params;
 
-    params.m_requestType = HTTP_POST;
-    params.m_url = m_params.m_authUrl;
+    /* strategy here: try update once for yourself */
 
-    params.m_headers.AddToTail(  
-        "Content-Type: application/x-www-form-urlencoded" );
-    params.m_headers.AddToTail( "Accept: application/json" );
+    while ( 1 ) {
+        /* here is small race  \|/ */
+        if ( !m_cachedAccessToken.IsExpired() ) {
+            m_accessToken = m_cachedAccessToken.GetToken();
+            m_state = STT_ST_TEXT;
+            return;
+        }
 
-    params.m_inputOpMethod = HTTP_ME_BUFFER;
+        if ( m_cachedAccessToken().StartUpdate() ) {
+            HttpRequestParams_t params;
+        
+            params.m_requestType = HTTP_POST;
+            params.m_url = m_params.m_authUrl;
+        
+            params.m_headers.AddToTail(  
+                "Content-Type: application/x-www-form-urlencoded" );
+            params.m_headers.AddToTail( "Accept: application/json" );
+        
+            params.m_inputOpMethod = HTTP_ME_BUFFER;
+        
+            CUtlString t = "client_id=";
+            t += m_params.m_appKey;
+            t += "&client_secret=";
+            t += m_params.m_appSecret;
+            t += "&scope=SPEECH&grant_type=client_credentials";
+        
+            params.m_inputBuffer.Put( t.Get(), t.Length() );
+        
+            params.m_outputOpMethod = HTTP_ME_BUFFER;
+            params.m_onDone = boost::bind( 
+                    &CAttSpeechToTextJob::OnAuthReceived, this, _1 );
+        
+            g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
+            return;
 
-    CUtlString t = "client_id=";
-    t += m_params.m_appKey;
-    t += "&client_secret=";
-    t += m_params.m_appSecret;
-    t += "&scope=SPEECH&grant_type=client_credentials";
-
-    params.m_inputBuffer.Put( t.Get(), t.Length() );
-
-    params.m_outputOpMethod = HTTP_ME_BUFFER;
-    params.m_onDone = boost::bind( &CAttSpeechToTextJob::OnAuthReceived, 
-            this, _1 );
-
-    g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
+        } else {
+            /* wait for token updating */
+            while ( m_cachedAccessToken().IsUpdating() ) {
+                ThreadSleep( 50 );
+            }
+        }
+    }
 }
 
 void CAttSpeechToTextJob::ThinkOnText( void ) {
@@ -119,4 +145,6 @@ void CAttSpeechToTextJob::ThinkOnText( void ) {
 
     g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
 }
+
+CachedAccessToken CAttSpeechToTextJob::m_accessToken;
 
