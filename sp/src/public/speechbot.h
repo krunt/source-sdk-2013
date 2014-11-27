@@ -31,7 +31,6 @@ struct SpeechBotResults_t {
 };
 
 struct SpeechBotParams_t {
-    CUtlString m_text;
     CUtlString m_language;
     boost::function1<void, SpeechBotResults_t> m_onDone;
 };

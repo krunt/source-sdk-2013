@@ -5922,3 +5922,41 @@ CON_COMMAND( stt_stop, "stop recording speech to text" )
 {
     GetSoundRecorder()->StopRecording();
 }
+
+static void SpeechBotStartCallback( SpeechBotResults_t &res ) {
+    TextToSpeechResults tts;
+    tts.m_failure = res.m_failure;
+    tts.m_failureReason = res.m_failureReason;
+    tts.m_wavBuffer = res.m_wavBuffer;
+    SceneStartCallback( tts );
+}
+
+CON_COMMAND( speechbot_start, "start recording speech-bot" )
+{
+    if ( args.ArgC() != 2 ) {
+        DevWarning( "Usage: speechbot_start <language>\n" );
+        return;
+    }
+
+    if ( args.Arg( 1 ) != "en-US"
+            && args.Arg( 1 ) != "ru-RU") 
+    {
+        DevWarning( "language must be `en-US|ru-RU'\n" );
+        return;
+    }
+
+    if ( !GetSoundRecorder()->StartRecording() ) {
+        return;
+    }
+
+    SpeechBotParams_t params;
+    params.m_language = args.Arg( 1 );
+    params.m_onDone = boost::bind( &SttStartCallback, _1 );
+
+    g_pThreadPool->AddJob( new CSpeechBotJob( params ) );
+}
+
+CON_COMMAND( speechbot_stop, "stop recording speech-bot" )
+{
+    GetSoundRecorder()->StopRecording();
+}

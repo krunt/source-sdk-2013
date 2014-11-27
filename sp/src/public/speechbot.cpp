@@ -48,7 +48,7 @@ void CSpeechBotJob::OnChatBotReceived( const ChatBotResults_t &res ) {
 
 JobStatus_t CSpeechBotJob::DoExecute( void ) {
     CChatBot *bot = GetBotForLanguage( m_params.m_language );
-    CUtlString text = bot->Answer( m_params.m_text );
+    CUtlString text = bot->Answer( m_text );
 
     switch ( m_state ) {
     case SPEECH_ST_STT: {
