@@ -35,6 +35,7 @@ class CWavRecordingJob : public CFunctorJob,
 public:
     CWavRecordingJob( const WavRecordingParams_t &params );
     virtual JobStatus_t DoExecute( void );
+    void OnWavReceived( HttpRequestResults_t &data );
 
 private:
     WavRecordingParams_t m_params;

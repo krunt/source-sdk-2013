@@ -1,4 +1,10 @@
-#include "chatbot.h"
+#include "speechbot.h"
+
+#include "att_stt.h"
+#include "att_tts.h"
+
+#include "yandex_stt.h"
+#include "yandex_tts.h"
 
 
 CSpeechBotJob::CSpeechBotJob( const SpeechBotParams_t &params )
@@ -11,9 +17,9 @@ CSpeechBotJob::~CSpeechBotJob( void ) {
 }
 
 void CSpeechBotJob::OnSpeechToTextBotReceived( const SpeechToTextResults_t &res ) {
-    if ( res.failure ) {
+    if ( res.m_failure ) {
         m_state = SPEECH_ST_DONE;
-        m_failure=  res.failure;
+        m_failure=  res.m_failure;
         m_failureReason = res.m_failureReason;
     } else {
         m_state = SPEECH_ST_T2T;
@@ -23,8 +29,8 @@ void CSpeechBotJob::OnSpeechToTextBotReceived( const SpeechToTextResults_t &res 
 }
 
 void CSpeechBotJob::OnTextToSpeechBotReceived( const TextToSpeechResults_t &res ) {
-    if ( res.failure ) {
-        m_failure=  res.failure;
+    if ( res.m_failure ) {
+        m_failure=  res.m_failure;
         m_failureReason = res.m_failureReason;
     } else {
         m_wavBuffer.Put( (const char *)res.m_wavBuffer->Base(), 
@@ -35,9 +41,9 @@ void CSpeechBotJob::OnTextToSpeechBotReceived( const TextToSpeechResults_t &res 
 }
 
 void CSpeechBotJob::OnChatBotReceived( const ChatBotResults_t &res ) {
-    if ( res.failure ) {
+    if ( res.m_failure ) {
         m_state = SPEECH_ST_DONE;
-        m_failure=  res.failure;
+        m_failure=  res.m_failure;
         m_failureReason = res.m_failureReason;
     } else {
         m_state = SPEECH_ST_TTS;
@@ -57,7 +63,7 @@ JobStatus_t CSpeechBotJob::DoExecute( void ) {
         params.m_onDone = boost::bind( &CSpeechBotJob::OnSpeechToTextBotReceived, 
                 this, _1 );
 
-        if ( m_params.language == "en-US" ) {
+        if ( m_params.m_language == "en-US" ) {
             params.m_authUrl = "https://api.att.com/oauth/v4/token";
             params.m_sttUrl = "https://api.att.com/speech/v3/speechToText";
             params.m_appKey = "yp9d7i3xjqgl1d7cymq5qzba0b9xxpkh";
@@ -96,23 +102,24 @@ JobStatus_t CSpeechBotJob::DoExecute( void ) {
         params.m_onDone = boost::bind( &CSpeechBotJob::OnTextToSpeechBotReceived, 
                 this, _1 );
 
-        if ( m_params.language == "en-US" ) {
+        if ( m_params.m_language == "en-US" ) {
             params.m_authUrl = "https://api.att.com/oauth/v4/token";
             params.m_ttsUrl = "https://api.att.com/speech/v3/textToSpeech";
             params.m_convUrl = "http://192.168.0.100:19999/";
             params.m_appKey = "5p8eyqkvfynsw9mlngcvrs6t1d1saxmp";
             params.m_appSecret = "0q4z4cgxonq50imw0ohinehpduj8updb";
 
-            g_pThreadPool->AddJob( new CAttSpeechToTextJob( params ) );
+            g_pThreadPool->AddJob( new CAttTextToSpeechJob( params ) );
 
         } else { // ru-RU
             params.m_authUrl = "";
-            params.m_sttUrl = "http://tts.voicetech.yandex.net/generate";
+            params.m_ttsUrl = "http://tts.voicetech.yandex.net/generate";
+            params.m_convUrl = "http://192.168.0.100:19999/";
 
             params.m_appKey = "f0d988b2-93a4-4a5c-945b-42fa3e3a5974";
             params.m_appSecret = "";
 
-            g_pThreadPool->AddJob( new CYandexSpeechToTextJob( params ) );
+            g_pThreadPool->AddJob( new CYandexTextToSpeechJob( params ) );
         }
         break;
     }
@@ -124,6 +131,7 @@ JobStatus_t CSpeechBotJob::DoExecute( void ) {
         if ( !results.m_failure ) {
             results.m_wavBuffer = &m_wavBuffer;
         }
+        results.m_text = m_text;
 
         CallOnDone( results );
         break;

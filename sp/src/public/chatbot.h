@@ -6,21 +6,30 @@
 #endif
 
 #include "tier1/tier1.h"
+#include "tier1/utlstring.h"
+#include "tier1/functors.h"
+
+#include "http.h"
+
+#undef max
+#undef min
+#include <boost/bind.hpp>
+#include <boost/function.hpp>
 
 class CChatBot {
 public:
     ~CChatBot() {}
-    virtual CUtlString Answer( const UtlString &text ) = 0;
+    virtual CUtlString Answer( const CUtlString &text ) = 0;
 };
 
 class CEngChatBot : public CChatBot {
 public:
-    virtual CUtlString Answer( const UtlString &text ) { return text; }
+    virtual CUtlString Answer( const CUtlString &text ) { return text; }
 };
 
 class CRusChatBot : public CChatBot {
 public:
-    virtual CUtlString Answer( const UtlString &text ) { return text; }
+    virtual CUtlString Answer( const CUtlString &text ) { return text; }
 };
 
 struct ChatBotResults_t {
@@ -39,7 +48,7 @@ struct ChatBotParams_t {
 class CChatBotJob : public CFunctorJob, public COnDoneCallback<ChatBotResults_t> {
 public:
     CChatBotJob( const ChatBotParams_t &params );
-    virtual ~CTextToSpeechJob() {}
+    virtual ~CChatBotJob() {}
 
     virtual JobStatus_t DoExecute( void );
 
@@ -49,6 +58,6 @@ private:
     ChatBotParams_t m_params;
 };
 
-extern CChatBot *GetBotForLanguage( const UtlString &language );
+extern CChatBot *GetBotForLanguage( const CUtlString &language );
 
 #endif // IENGINECHATBOT_H

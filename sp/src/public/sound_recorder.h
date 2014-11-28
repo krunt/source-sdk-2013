@@ -12,6 +12,8 @@
 
 #include <portaudio.h>
 
+#include "http.h"
+
 /* mono for now, 16-bit */
 
 struct CSoundRecordParams_t {
@@ -33,9 +35,12 @@ public:
 
     CUtlBuffer &GetWavBuffer( void );
 
-    int OnRecordingCallback( const unsigned short *input, int sampleCount );
+    int OnRecordingCallback( const short *input, int sampleCount );
 
 private:
+    void OnWavStart( const HttpRequestResults_t &r );
+    void OnWavStop( const HttpRequestResults_t &r );
+
     bool NeedTerminate( void ) const;
     void BuildWavBuffer( void );
 
@@ -47,7 +52,7 @@ private:
     CInterlockedIntT<int> m_toStop;
 
     int m_samplesPos;
-    CUtlMemory<unsigned short> m_samples;
+    CUtlMemory<short> m_samples;
 
     bool m_wavBuilt;
     CUtlBuffer m_wavBuffer;

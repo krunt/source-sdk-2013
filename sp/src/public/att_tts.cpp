@@ -1,5 +1,17 @@
 #include "att_tts.h"
 
+#undef min
+#undef max
+
+#include <jsoncpp/json/json.h>
+
+#include <boost/bind.hpp>
+#include <boost/function.hpp>
+
+CAttTextToSpeechJob::CAttTextToSpeechJob( const TextToSpeechParams_t &params )
+    : CTextToSpeechJob( params )
+{}
+
 void CAttTextToSpeechJob::OnAuthReceived( HttpRequestResults_t &data ) {
     Json::Value args;
     Json::Reader jsonReader;
@@ -27,8 +39,8 @@ void CAttTextToSpeechJob::OnAuthReceived( HttpRequestResults_t &data ) {
         m_accessToken = args[ "access_token" ].asCString();
         m_state = TTS_ST_WAV;
 
-        m_cachedAccessToken.Init( m_accessToken, 
-            gpGlobals->curtime + args[ "expires_in" ].asInt() );
+        m_cachedAccessToken.Init( m_accessToken, 0 );
+            //gpGlobals->curtime + args[ "expires_in" ].asInt() );
     }
 
     DoExecute();
@@ -40,7 +52,8 @@ void CAttTextToSpeechJob::ThinkOnAuth( void ) {
         /* here is small race  \|/ */
         if ( !m_cachedAccessToken.IsExpired() ) {
             m_accessToken = m_cachedAccessToken.GetToken();
-            m_state = STT_ST_WAV;
+            m_state = TTS_ST_WAV;
+            DoExecute();
             return;
         }
 
@@ -104,3 +117,4 @@ void CAttTextToSpeechJob::ThinkOnWav( void ) {
     g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
 }
 
+CAttCachedAccessToken CAttTextToSpeechJob::m_cachedAccessToken;

@@ -9,23 +9,34 @@ CWavRecordingJob::CWavRecordingJob( const WavRecordingParams_t &params )
     SetOnDone( params.m_onDone );
 }
 
+
+void CWavRecordingJob::OnWavReceived( HttpRequestResults_t &data ) {
+    WavRecordingResults_t results;
+    results.m_failure = data.m_failure;
+    results.m_failureReason = *data.m_failureReason;
+    results.m_wavBuffer = data.m_outputBuffer;
+
+    CallOnDone( results );
+}
+
 JobStatus_t CWavRecordingJob::DoExecute( void ) {
     CSoundRecorder *rec = GetSoundRecorder();
     while ( rec->IsRecording() ) {
         ThreadSleep( 100 );
     }
 
-    WavRecordingResults_t results;
-    results.m_failure = 0;
-    results.m_failureReason = "";
-    results.m_wavBuffer = &rec->GetWavBuffer();
+    HttpRequestParams_t params;
+        
+    params.m_requestType = HTTP_GET;
+    params.m_url = "http://localhost:19998/get";
+        
+    params.m_inputOpMethod = HTTP_ME_BUFFER;
 
-    /*
-    fwrite( results.m_wavBuffer->Base(),
-        1, results.m_wavBuffer->TellPut(), stderr );
-        */
-
-    CallOnDone( results );
+    params.m_outputOpMethod = HTTP_ME_BUFFER;
+    params.m_onDone = boost::bind( 
+        &CWavRecordingJob::OnWavReceived, this, _1 );
+        
+    g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
 
     return JOB_OK;
 }
@@ -45,6 +56,7 @@ void CSpeechToTextJob::OnWavReceived( WavRecordingResults_t &data ) {
         m_failureReason = "wav-fetch failured";
         m_state = STT_ST_DONE;
     } else {
+        DevMsg( "got %d bytes in wav-buffer\n", data.m_wavBuffer->TellPut() );
         m_wavBuffer.Put( data.m_wavBuffer->Base(), data.m_wavBuffer->TellPut() );
         m_state = STT_ST_AUTH;
     }

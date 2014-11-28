@@ -6,6 +6,7 @@
 #endif
 
 #include "stt.h"
+#include "att_cached_token.h"
 
 class CAttSpeechToTextJob : public CSpeechToTextJob {
 public:

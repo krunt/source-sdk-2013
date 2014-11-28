@@ -41,6 +41,9 @@
 #include "inmemoryio.h"
 #include "sound_recorder.h"
 #include "stt.h"
+#include "att_stt.h"
+#include "att_tts.h"
+#include "speechbot.h"
 
 #include <algorithm>
 #include <boost/bind.hpp>
@@ -5889,7 +5892,7 @@ CON_COMMAND( scene_start, "start scene in entity" )
 
     params.m_onDone = boost::bind( &SceneStartCallback, _1 );
 
-    g_pThreadPool->AddJob( new CTextToSpeechJob( params ) );
+    g_pThreadPool->AddJob( new CAttTextToSpeechJob( params ) );
 }
 
 static void SttStartCallback( SpeechToTextResults_t &res ) {
@@ -5915,7 +5918,7 @@ CON_COMMAND( stt_start, "start recording speech to text" )
 
     params.m_onDone = boost::bind( &SttStartCallback, _1 );
 
-    g_pThreadPool->AddJob( new CSpeechToTextJob( params ) );
+    g_pThreadPool->AddJob( new CAttSpeechToTextJob( params ) );
 }
 
 CON_COMMAND( stt_stop, "stop recording speech to text" )
@@ -5923,35 +5926,71 @@ CON_COMMAND( stt_stop, "stop recording speech to text" )
     GetSoundRecorder()->StopRecording();
 }
 
+static const char *scEntityName = "scene2_lcs_intro";
 static void SpeechBotStartCallback( SpeechBotResults_t &res ) {
-    TextToSpeechResults tts;
-    tts.m_failure = res.m_failure;
-    tts.m_failureReason = res.m_failureReason;
-    tts.m_wavBuffer = res.m_wavBuffer;
-    SceneStartCallback( tts );
+    if ( res.m_failure ) {
+        Warning( "SceneStartCallback(): fetch failured: %d/%s\n",
+            res.m_failure,
+            res.m_failureReason.Get() );
+        return;
+    }
+
+    if ( !res.m_wavBuffer->TellPut() ) {
+        Warning( "SceneStartCallback(): wavBuffer is empty\n" );
+        return;
+    }
+
+    CSentence sentence;
+    if ( !GetSentenceFromWavBuffer( *res.m_wavBuffer, sentence ) ) {
+        return;
+    }
+
+    float startTime, endTime;
+    sentence.GetEstimatedTimes( startTime, endTime );
+
+    WriteSceneTemplateToDisk( startTime, endTime, *res.m_wavBuffer );
+
+    if ( res.m_text == "Лена" ) {
+        scEntityName = "scene3_lcs_intro";
+    } else if ( res.m_text == "Дима" ) {
+        scEntityName = "scene4_lcs_intro";
+    } else if ( res.m_text == "Андрей" ) {
+        scEntityName = "scene2_lcs_intro";
+    }
+
+    CSceneEntity *ent = dynamic_cast<CSceneEntity *>(gEntList.FindEntityByName( NULL,
+                scEntityName ));
+
+    if ( ent ) {
+        g_EventQueue.AddEvent( ent, "Reload", 0, ent, ent );
+        g_EventQueue.AddEvent( ent, "Start", 0, ent, ent );
+    } else {
+        DevWarning( "Can't find entity with name `%s'\n", scEntityName );
+    }
 }
 
-CON_COMMAND( speechbot_start, "start recording speech-bot" )
+CON_COMMAND( speechbot_start_en, "start recording en speech-bot" )
 {
-    if ( args.ArgC() != 2 ) {
-        DevWarning( "Usage: speechbot_start <language>\n" );
-        return;
-    }
-
-    if ( args.Arg( 1 ) != "en-US"
-            && args.Arg( 1 ) != "ru-RU") 
-    {
-        DevWarning( "language must be `en-US|ru-RU'\n" );
-        return;
-    }
-
     if ( !GetSoundRecorder()->StartRecording() ) {
         return;
     }
 
     SpeechBotParams_t params;
-    params.m_language = args.Arg( 1 );
-    params.m_onDone = boost::bind( &SttStartCallback, _1 );
+    params.m_language = "en-US";
+    params.m_onDone = boost::bind( &SpeechBotStartCallback, _1 );
+
+    g_pThreadPool->AddJob( new CSpeechBotJob( params ) );
+}
+
+CON_COMMAND( speechbot_start_ru, "start recording ru speech-bot" )
+{
+    if ( !GetSoundRecorder()->StartRecording() ) {
+        return;
+    }
+
+    SpeechBotParams_t params;
+    params.m_language = "ru-RU";
+    params.m_onDone = boost::bind( &SpeechBotStartCallback, _1 );
 
     g_pThreadPool->AddJob( new CSpeechBotJob( params ) );
 }

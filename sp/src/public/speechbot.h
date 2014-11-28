@@ -1,33 +1,21 @@
-#if !defined( IENGINECHATBOT_H )
-#define IENGINECHATBOT_H
+#if !defined( IENGINESPEECHBOT_H )
+#define IENGINESPEECHBOT_H
 
 #ifdef _WIN32
 #pragma once
 #endif
 
 #include "tier1/tier1.h"
-
-class CChatBot {
-public:
-    ~CChatBot() {}
-    virtual CUtlString Answer( const UtlString &text ) = 0;
-};
-
-class CEngChatBot : public CChatBot {
-public:
-    virtual CUtlString Answer( const UtlString &text ) { return text; }
-};
-
-class CRusChatBot : public CChatBot {
-public:
-    virtual CUtlString Answer( const UtlString &text ) { return text; }
-};
+#include "chatbot.h"
+#include "stt.h"
+#include "tts.h"
 
 struct SpeechBotResults_t {
     int        m_failure;
     CUtlString m_failureReason;
 
     CUtlBuffer *m_wavBuffer;
+    CUtlString  m_text;
 };
 
 struct SpeechBotParams_t {
@@ -46,7 +34,7 @@ enum SpeechBotJobState_t
 class CSpeechBotJob : public CFunctorJob, 
     public COnDoneCallback<SpeechBotResults_t> {
 public:
-    CSpeechBotJob( const ChatBotParams_t &params );
+    CSpeechBotJob( const SpeechBotParams_t &params );
     virtual ~CSpeechBotJob( void );
 
     virtual JobStatus_t DoExecute( void );
@@ -66,4 +54,4 @@ private:
     CUtlString m_text;
 };
 
-#endif // IENGINECHATBOT_H
+#endif // IENGINESPEECHBOT_H

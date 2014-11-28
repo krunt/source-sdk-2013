@@ -1,5 +1,16 @@
 #include "yandex_tts.h"
+
+#undef min
+#undef max
+
 #include <curl/curl.h>
+
+#include <boost/bind.hpp>
+#include <boost/function.hpp>
+
+CYandexTextToSpeechJob::CYandexTextToSpeechJob( const TextToSpeechParams_t &params )
+    : CTextToSpeechJob( params )
+{}
 
 static CUtlString urlEncode( const char *s, int length ) {
     CURL *curl = curl_easy_init();
@@ -21,8 +32,9 @@ void CYandexTextToSpeechJob::ThinkOnWav( void ) {
     params.m_url += "?text=";
     params.m_url += urlEncode( m_params.m_text.Get(), m_params.m_text.Length() );
     params.m_url += "&lang=ru-RU";
-    params.m_url += "&speaker-zahar";
-    params.m_url += CUtlString( "&key=" ) + m_params.m_appKey;
+    params.m_url += "&speaker=zahar";
+    params.m_url += CUtlString( "&key=" );
+    params.m_url += m_params.m_appKey;
     params.m_url += "&format=wav";
 
     params.m_inputOpMethod = HTTP_ME_BUFFER;

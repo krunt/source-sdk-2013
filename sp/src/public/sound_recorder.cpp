@@ -6,13 +6,14 @@
 #undef min
 #undef max
 #include <algorithm> 
+#include <boost/bind.hpp>
 
 CSoundRecorder::CSoundRecorder( const CSoundRecordParams_t &params )
     : m_params( params ), m_recording( 0 ), m_toStop( 0 ), m_samplesPos( 0 ), 
         m_wavBuilt( false )
 {
-    int numBytes = m_params.m_sampleRate * m_params.m_maxDuration;
-    m_samples.Grow( numBytes );
+    int numSamples = m_params.m_sampleRate * m_params.m_maxDuration;
+    m_samples.Grow( numSamples );
 
     m_inError = false;
     PaError err = Pa_Initialize();
@@ -42,7 +43,7 @@ static int PaRecordCallback(
         void *userData )
 {
     CSoundRecorder *rec = (CSoundRecorder *)userData;
-    return rec->OnRecordingCallback( static_cast<const unsigned short *>( input ),
+    return rec->OnRecordingCallback( static_cast<const short *>( input ),
         frameCount );
 }
 
@@ -51,10 +52,10 @@ bool CSoundRecorder::NeedTerminate( void ) const {
         return true;
     }
 
-    bool atEnd = m_samplesPos == m_samples.Count();
+    bool atEnd = m_samplesPos >= m_samples.Count();
 
     if ( !atEnd ) {
-        const unsigned short kStopLimit = ( 1<<16 ) / 32;
+        const short kStopLimit = ( 1<<16 ) / 32;
         int testCount = m_params.m_sampleRate; /* one second */
 
         if ( m_params.m_autoStop && m_samplesPos > testCount )  {
@@ -75,15 +76,15 @@ bool CSoundRecorder::NeedTerminate( void ) const {
     return atEnd;
 }
 
-int CSoundRecorder::OnRecordingCallback( const unsigned short *input, 
+int CSoundRecorder::OnRecordingCallback( const short *input, 
         int inSampleCount )
 {
     int samplesToCopy = std::max( 0, std::min( inSampleCount, 
         m_samples.Count() - m_samplesPos ) );
 
     if ( samplesToCopy ) {
-        memcpy( m_samples.Base(), input,
-            samplesToCopy * sizeof( unsigned short ) );
+        memcpy( m_samples.Base() + m_samplesPos * sizeof( short ), input,
+            samplesToCopy * sizeof( short ) );
     }
 
     m_samplesPos += samplesToCopy;
@@ -99,77 +100,54 @@ int CSoundRecorder::OnRecordingCallback( const unsigned short *input,
 }
 
 bool CSoundRecorder::StartRecording( void ) {
-    if ( m_inError ) {
-        DevWarning( "StartRecording() can't execute (failed state)\n" );
-        return false;
-    }
-
-    if ( IsRecording() ) {
-        return false;
-    }
-
-    PaStreamParameters  params;
-    params.device = Pa_GetDefaultInputDevice();
-
-    if ( params.device == paNoDevice ) {
-        DevWarning( "StartRecording(): Pa_GetDefaultInputDevice no default d-ce" );
-        return false;
-    }
-
-    params.channelCount = 1;
-    params.sampleFormat = paInt16;
-    params.suggestedLatency 
-        = Pa_GetDeviceInfo( params.device )->defaultLowInputLatency;
-    params.hostApiSpecificStreamInfo = NULL;
-
-    m_stream = NULL;
-    PaError err = Pa_OpenStream(
-              &m_stream,
-              &params,
-              NULL,
-              m_params.m_sampleRate,
-              512, // frames per buffer
-              paClipOff,
-              &PaRecordCallback,
-              this );
-    if( err != paNoError ) {
-        DevWarning( "Pa_OpenStream(): failed open sound stream (%s)\n",
-            Pa_GetErrorText( err ) );
-        return false;
-    }
-
-    if ( !m_stream ) {
-        DevWarning( "Pa_OpenStream(): m_stream is NULL\n" );
-        return false;
-    }
-
-    m_samplesPos = 0;
-    m_wavBuffer.Clear();
     m_recording = 1;
-    m_wavBuilt = false;
-    m_toStop = 0;
 
-    err = Pa_StartStream( m_stream );
-    if( err != paNoError ) {
-        DevWarning( "Pa_StartStream(): failed start sound stream (%s)\n",
-                Pa_GetErrorText( err ) );
-        return false;
-    }
+    HttpRequestParams_t params;
+        
+    params.m_requestType = HTTP_GET;
+    params.m_url = "http://localhost:19998/start";
+        
+    params.m_inputOpMethod = HTTP_ME_BUFFER;
+
+    params.m_outputOpMethod = HTTP_ME_BUFFER;
+    params.m_onDone = boost::bind( 
+        &CSoundRecorder::OnWavStart, this, _1 );
+        
+    g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
 
     return true;
 }
 
+void CSoundRecorder::OnWavStart( const HttpRequestResults_t &r ) {
+    if ( r.m_failure && r.m_failure != 52 ) {
+        DevWarning( "failed wav-start request: %d `%s'\n", 
+                r.m_failure, r.m_failureReason->Get() );
+        m_recording = 0;
+    }
+}
+
+void CSoundRecorder::OnWavStop( const HttpRequestResults_t &r ) {
+    if ( r.m_failure && r.m_failure != 52 ) {
+        DevWarning( "failed wav-stop request: %d `%s'\n", 
+                r.m_failure, r.m_failureReason->Get() );
+    }
+
+    m_recording = 0;
+}
+
 bool CSoundRecorder::StopRecording( void ) {
-    if ( m_inError ) {
-        DevWarning( "StopRecording() can't execute (failed state)\n" );
-        return false;
-    }
+    HttpRequestParams_t params;
+        
+    params.m_requestType = HTTP_GET;
+    params.m_url = "http://localhost:19998/stop";
+        
+    params.m_inputOpMethod = HTTP_ME_BUFFER;
 
-    if ( !IsRecording() ) {
-        return false;
-    }
-
-    m_toStop = 1;
+    params.m_outputOpMethod = HTTP_ME_BUFFER;
+    params.m_onDone = boost::bind( 
+        &CSoundRecorder::OnWavStop, this, _1 );
+        
+    g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
 
     return true;
 }
@@ -195,7 +173,7 @@ void CSoundRecorder::BuildWavBuffer( void ) {
     	format.wFormatTag = WAVE_FORMAT_PCM;
     	format.nChannels = 1;
     	format.nSamplesPerSec = m_params.m_sampleRate;
-    	format.nAvgBytesPerSec = m_params.m_sampleRate * sizeof(unsigned short);
+    	format.nAvgBytesPerSec = m_params.m_sampleRate * sizeof(short);
     	format.nBlockAlign = 2;
     	format.wBitsPerSample = 16;
     	format.cbSize = sizeof( format );
@@ -203,12 +181,12 @@ void CSoundRecorder::BuildWavBuffer( void ) {
         // fmt-header 
         {
             outRiff.ChunkStart( WAVE_FMT );
-            outRiff.WriteData( &format.wFormatTag, 2 );
-            outRiff.WriteData( &format.nChannels, 2 );
-            outRiff.WriteData( &format.nSamplesPerSec, 4 );
-            outRiff.WriteData( &format.nAvgBytesPerSec, 4 );
-            outRiff.WriteData( &format.nBlockAlign, 2 );
-            outRiff.WriteData( &format.wBitsPerSample, 2 );
+            outRiff.ChunkWriteData( &format.wFormatTag, 2 );
+            outRiff.ChunkWriteData( &format.nChannels, 2 );
+            outRiff.ChunkWriteData( &format.nSamplesPerSec, 4 );
+            outRiff.ChunkWriteData( &format.nAvgBytesPerSec, 4 );
+            outRiff.ChunkWriteData( &format.nBlockAlign, 2 );
+            outRiff.ChunkWriteData( &format.wBitsPerSample, 2 );
             outRiff.ChunkFinish();
         }
     
@@ -216,13 +194,14 @@ void CSoundRecorder::BuildWavBuffer( void ) {
         {
             outRiff.ChunkStart( WAVE_DATA );
             for ( int i = 0; i < m_samplesPos; ++i ) {
-                outRiff.ChunkWriteData( &m_samples[i], sizeof( unsigned short ) );
+                outRiff.ChunkWriteData( &m_samples[i], sizeof( short ) );
             }
             outRiff.ChunkFinish();
         }
     }
 
     m_wavBuffer.Swap( inmem.GetBuffer() );
+    m_wavBuffer.SeekPut( CUtlBuffer::SEEK_TAIL, 0 );
 
     m_wavBuilt = true;
 

@@ -1,5 +1,11 @@
 #include "att_stt.h"
 
+#include <jsoncpp/json/json.h>
+
+CAttSpeechToTextJob::CAttSpeechToTextJob( const SpeechToTextParams_t &params )
+    : CSpeechToTextJob( params )
+{}
+
 void CAttSpeechToTextJob::OnAuthReceived( HttpRequestResults_t &data ) {
     Json::Value args;
     Json::Reader jsonReader;
@@ -27,8 +33,8 @@ void CAttSpeechToTextJob::OnAuthReceived( HttpRequestResults_t &data ) {
         m_accessToken = args[ "access_token" ].asCString();
         m_state = STT_ST_TEXT;
 
-        m_cachedAccessToken.Init( m_accessToken, 
-            gpGlobals->curtime + args[ "expires_in" ].asInt() );
+        m_cachedAccessToken.Init( m_accessToken, 0 );
+            //gpGlobals->curtime + args[ "expires_in" ].asInt() );
     }
 
     DoExecute();
@@ -48,10 +54,8 @@ void CAttSpeechToTextJob::OnTextReceived( HttpRequestResults_t &data ) {
         Json::Value args;
         Json::Reader jsonReader;
 
-        /*
         fwrite( data.m_outputBuffer->Base(), 
             1, data.m_outputBuffer->TellPut(), stderr );
-            */
 
         if ( !jsonReader.parse( 
                 (const char *)data.m_outputBuffer->Base(),
@@ -84,10 +88,11 @@ void CAttSpeechToTextJob::ThinkOnAuth( void ) {
         if ( !m_cachedAccessToken.IsExpired() ) {
             m_accessToken = m_cachedAccessToken.GetToken();
             m_state = STT_ST_TEXT;
+            DoExecute();
             return;
         }
 
-        if ( m_cachedAccessToken().StartUpdate() ) {
+        if ( m_cachedAccessToken.StartUpdate() ) {
             HttpRequestParams_t params;
         
             params.m_requestType = HTTP_POST;
@@ -116,7 +121,7 @@ void CAttSpeechToTextJob::ThinkOnAuth( void ) {
 
         } else {
             /* wait for token updating */
-            while ( m_cachedAccessToken().IsUpdating() ) {
+            while ( m_cachedAccessToken.IsUpdating() ) {
                 ThreadSleep( 50 );
             }
         }
@@ -146,5 +151,5 @@ void CAttSpeechToTextJob::ThinkOnText( void ) {
     g_pThreadPool->AddJob( new CHttpRequestJob( params ) );
 }
 
-CachedAccessToken CAttSpeechToTextJob::m_accessToken;
+CAttCachedAccessToken CAttSpeechToTextJob::m_cachedAccessToken;
 

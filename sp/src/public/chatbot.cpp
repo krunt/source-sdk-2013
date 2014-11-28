@@ -1,16 +1,17 @@
 #include "chatbot.h"
 
-extern CChatBot *GetBotForLanguage( const UtlString &lang ) {
+extern CChatBot *GetBotForLanguage( const CUtlString &lang ) {
     if ( lang == "en-US" ) {
         return new CEngChatBot();
     } else if ( lang == "ru-RU" ) {
         return new CRusChatBot();
     }
     assert( 0 );
+    return NULL;
 }
 
 CChatBotJob::CChatBotJob( const ChatBotParams_t &params )
-    : m_params( params )
+    : CFunctorJob( NULL, "" ), m_params( params )
 {
     SetOnDone( m_params.m_onDone );
 }

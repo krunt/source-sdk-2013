@@ -63,7 +63,7 @@ $Configuration
 	{
 		$AdditionalDependencies			"$BASE winmm.lib" [$WIN32]
 		$SystemLibraries                                                        "iconv" [$OSXALL]
-        $SystemLibraries                       "curl -ljsoncpp -lportaudio "
+        $SystemLibraries                       "curl -ljsoncpp -lportaudio -ltinyxml "
 	}
 }
 
@@ -270,6 +270,19 @@ $Project
 		$File	"$SRCDIR\public\sound_recorder.h"
 		$File	"$SRCDIR\public\sentence.cpp"
 		$File	"$SRCDIR\public\sentence.h"
+		$File	"$SRCDIR\public\att_stt.cpp"
+		$File	"$SRCDIR\public\att_stt.h"
+		$File	"$SRCDIR\public\att_tts.cpp"
+		$File	"$SRCDIR\public\att_tts.h"
+		$File	"$SRCDIR\public\chatbot.cpp"
+		$File	"$SRCDIR\public\chatbot.h"
+		$File	"$SRCDIR\public\speechbot.cpp"
+		$File	"$SRCDIR\public\speechbot.h"
+		$File	"$SRCDIR\public\yandex_stt.cpp"
+		$File	"$SRCDIR\public\yandex_stt.h"
+		$File	"$SRCDIR\public\yandex_tts.cpp"
+		$File	"$SRCDIR\public\yandex_tts.h"
+		$File	"$SRCDIR\public\att_cached_token.h"
 		$File	"buttons.cpp"
 		$File	"buttons.h"
 		$File	"cbase.cpp"
